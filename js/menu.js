@@ -1,6 +1,6 @@
 // $Id$
 var MenuUX = MenuUX || {};
-
+var $ = jQuery;
 $(document).ready(function() {
   MenuUX.init();
 });
@@ -30,36 +30,35 @@ MenuUX.initLink = function() {
     $(this).children('.fmenu-collapsed').trigger('click');
   });
   if ($('#form-error-name').length) {
-    $('#fmenu-link-input').addClass('error').val('');
+    $('#fmenu-link-input').addClass('error');
   }
 };
 
-Drupal.behaviors.MenuUX = function($el) {
-  $('#edit-fmenu-menu-name:not(.MenuUX-processed)')
-  .addClass('MenuUX-processed')
-  .change(MenuUX.menuChanged);
-  $('.fmenu-collapsed:not(.MenuUX-processed, .fmenu-new)', $el).click(MenuUX.expanderClicked).addClass('MenuUX-processed');
-  $('.fmenu-expanded:not(.MenuUX-processed)', $el).click(MenuUX.expanderClicked).addClass('MenuUX-processed')
-  .parent().children('ul.fmenu').show();
-  $('.fmenu-above:not(.MenuUX-processed)', $el).click(MenuUX.aboveClicked).addClass('MenuUX-processed');
-  $('.fmenu-below:not(.MenuUX-processed)', $el).click(MenuUX.belowClicked).addClass('MenuUX-processed');
-  $('.fmenu-child:not(.MenuUX-processed)', $el).click(MenuUX.childClicked).addClass('MenuUX-processed');
-  $('#fmenu-link-input:not(.MenuUX-processed)', $el).bind('change keyup', function() {
-    $('#edit-fmenu-link-title').val($(this).val());
-  }).addClass('MenuUX-processed');
+Drupal.behaviors.MenuUX = {
+  attach: function($el) {
+    $('#edit-fmenu-menu-name:not(.MenuUX-processed)')
+    .addClass('MenuUX-processed')
+    .change(MenuUX.menuChanged);
+    $('.fmenu-collapsed:not(.MenuUX-processed, .fmenu-new)', $el).click(MenuUX.expanderClicked).addClass('MenuUX-processed');
+    $('.fmenu-expanded:not(.MenuUX-processed)', $el).click(MenuUX.expanderClicked).addClass('MenuUX-processed')
+    .parent().children('ul.fmenu').show();
+    $('.fmenu-above:not(.MenuUX-processed)', $el).click(MenuUX.aboveClicked).addClass('MenuUX-processed');
+    $('.fmenu-below:not(.MenuUX-processed)', $el).click(MenuUX.belowClicked).addClass('MenuUX-processed');
+    $('.fmenu-child:not(.MenuUX-processed)', $el).click(MenuUX.childClicked).addClass('MenuUX-processed');
+    $('#fmenu-link-input:not(.MenuUX-processed)', $el).bind('change keyup', function() {
+      $('#edit-fmenu-link-title').val($(this).val());
+    }).addClass('MenuUX-processed');
+  }
 }
 
 MenuUX.menuChanged = function(event) {
   if (!MenuUX.initing) {
     $('#edit-fmenu-relation-type, #edit-fmenu-related-link').val('');
   }
-  $('#fmenu-pos-fieldset.collapsed a').eq(0).trigger('click');
   var menuName = $('#edit-fmenu-menu-name').val();
   if (menuName == '0') {
-    $('#fmenu-pos-fieldset').hide();
     return;
   }
-  $('#fmenu-pos-fieldset').show();
   var extra = $('#edit-fmenu-old-mlid2').val() == '' ? '' : '/' + $('#edit-fmenu-old-mlid2').val();
   $('#fmenu-browser').html('<div class="ahah-progress"><em>' + Drupal.t('Loading menu...') + '</em><div class="throbber"></div></div>');
   var get = {q:'node/add/menuux_load_menu/' + menuName + extra};

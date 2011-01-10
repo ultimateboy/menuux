@@ -13,14 +13,17 @@ function menuux_node_form_alter(&$form, &$form_state) {
   }
   unset($form['menu']);
   $node = &$form['#node'];
+  unset($node->menu);
   $form['fmenu'] = array(
     '#type' => 'fieldset',
     '#title' => t('Add to menu'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
     '#tree' => TRUE,
+    '#access' => user_access('administer menu'),
+    '#group' => 'additional_settings',
   );
-  $options = menuux_available_menus();
+  $options = menuux_available_menus($node->type);
   array_unshift($options, '<' . t('None') . '>');
   $form['fmenu']['menu_name'] = array(
     '#type' => 'select',
@@ -30,12 +33,15 @@ function menuux_node_form_alter(&$form, &$form_state) {
     '#default_value' => $node->fmenu['menu_name'],
   );
   $form['fmenu']['positioning'] = array(
-    '#type' => 'fieldset',
+    '#type' => 'container',
     '#title' => t('Name and position'),
     '#description' => t('After a menu has been chosen it will appear below. Browse the menu and add the content you are editing to the menu by using the icons that appear when you hover over or tap the existing menu items.'),
     '#collapsible' => TRUE,
-    '#collapsed' => !empty($node->fmenu['menu_name']),
-    '#attributes' => array('id' => 'fmenu-pos-fieldset'),
+    '#states' => array(
+      'invisible' => array(
+        '#edit-fmenu-menu-name' => array('value' => '0'),
+      ),
+    )
   );
   if ($node->fmenu['menu_name']) {
     $form['fmenu']['positioning']['#attributes']['style'] = 'display:block;';
@@ -43,20 +49,29 @@ function menuux_node_form_alter(&$form, &$form_state) {
   $menu = empty($node->fmenu['menu_name']) ? '<em>' . t('Choose a menu') . '</em>' : menuux_get_menu($node->fmenu['menu_name'], $node->fmenu['mlid']);
   $form['fmenu']['positioning']['menu_browser'] = array(
     '#type' => 'markup',
-    '#value' => '<div id="fmenu-browser">' . $menu . '</div>',
+    '#markup' => '<div id="fmenu-browser">' . $menu . '</div>',
   );
   $form['fmenu']['related_link'] = array(
     '#type' => 'hidden',
-    '#default_value' => $node->fmenu['related_link'],
+    '#default_value' => isset($node->fmenu['related_link']) ? $node->fmenu['related_link'] : '',
+    '#attributes' => array(
+      'id' => 'edit-fmenu-related-link'
+    ),
   );
   $form['fmenu']['relation_type'] = array(
     '#type' => 'hidden',
-    '#default_value' => $node->fmenu['relation_type'],
+    '#default_value' => isset($node->fmenu['relation_type']) ? $node->fmenu['relation_type'] : '',
+    '#attributes' => array(
+      'id' => 'edit-fmenu-relation-type'
+    ),
   );
   $form['fmenu']['link_title'] = array(
     '#type' => 'hidden',
     '#maxlength' => 255,
     '#default_value' => empty($node->fmenu['link_title']) ? $node->title : $node->fmenu['link_title'],
+    '#attributes' => array(
+      'id' => 'edit-fmenu-link-title'
+    ),
   );
   $form['fmenu']['old_link_title'] = array(
     '#type' => 'value',
@@ -66,6 +81,9 @@ function menuux_node_form_alter(&$form, &$form_state) {
   $form['fmenu']['old_mlid2'] = array(
     '#type' => 'hidden',
     '#value' => $node->fmenu['mlid'],
+    '#attributes' => array(
+      'id' => 'edit-fmenu-old-mlid2'
+    ),
   );
   $form['fmenu']['mlid'] = array(
     '#type' => 'value',
@@ -100,14 +118,16 @@ function menuux_node_form_validate(&$node) {
   $illegal = FALSE;
   if ($node->fmenu['related_link']) {
     if (empty($node->fmenu['link_title'])) {
-      form_set_error('', t('You must provide a name for your new menu element.') . '<div id="form-error-name"></div>');
+      form_set_error('', t('You must provide a name for your menu element.') . '<div id="form-error-name"></div>');
     }
     if (!is_numeric($node->fmenu['related_link']) || intval($node->fmenu['related_link']) != $node->fmenu['related_link']) {
       $illegal = TRUE;
     }
-    $menu_name = db_result(db_query('SELECT menu_name FROM {menu_links} WHERE mlid = %d', $node->fmenu['related_link']));
+    $menu_name = db_query('SELECT menu_name FROM {menu_links} WHERE mlid = :mlid', array(
+      ':mlid' => $node->fmenu['related_link'])
+    )->fetch(PDO::FETCH_OBJ)->menu_name;
     if ($menu_name) {
-      $available_menus = menuux_available_menus();
+      $available_menus = menuux_available_menus($node->type);
       if (!isset($available_menus[$menu_name])) {
         $illegal = TRUE;
       }
@@ -154,7 +174,9 @@ function menuux_node_form_submit(&$node) {
     }
   }
   if (!empty($node->fmenu['related_link'])) {
-    $related_link = db_fetch_array(db_query('SELECT * FROM {menu_links} WHERE mlid = %d', $node->fmenu['related_link']));
+    $related_link = db_query('SELECT * FROM {menu_links} WHERE mlid = :mlid', array(
+      ':mlid' => $node->fmenu['related_link']
+    ))->fetchAssoc();
     switch ($node->fmenu['relation_type']) {
       case 'above':
         $link['plid'] = $related_link['plid'];
@@ -180,28 +202,40 @@ function menuux_node_form_submit(&$node) {
  *  The link we want to place a new item below
  */
 function menuux_fix_menu_weights($link_above) {
-  $same_as_related = db_result(db_query_range(
-    "SELECT 1 FROM {menu_links} WHERE menu_name = '%s' AND weight = %d AND plid = %d AND link_title > '%s'",
-    $link_above['menu_name'], $link_above['weight'], $link_above['plid'], $link_above['link_title'], 0, 1
-  ));
+  $same_as_related = db_query_range(
+    "SELECT 1 FROM {menu_links} WHERE menu_name = :menu_name AND weight = :weight AND plid = :plid AND link_title > :link_title", 0, 1, array(
+      ':menu_name' => $link_above['menu_name'],
+      ':weight' => $link_above['weight'],
+      ':plid' => $link_above['plid'],
+      ':link_title' => $link_above['link_title'],
+    )
+  )->fetch(PDO::FETCH_NUM);
   // Several other links has the same weight as the one we want to be placed below...
   if ($same_as_related) {
-    db_query(
-      "UPDATE {menu_links} SET weight = weight + 2 WHERE menu_name = '%s' AND weight >= %d AND plid = %d AND link_title > '%s'",
-      $link_above['menu_name'], $link_above['weight'], $link_above['plid'], $link_above['link_title']
-    );
+    db_update('menu_links')
+      ->expression('weight', 'weight + 2')
+      ->condition('menu_name', $link_above['menu_name'])
+      ->condition('weight', $link_above['weight'], '>=')
+      ->condition('plid', $link_above['plid'])
+      ->condition('link_title', $link_above['link_title'])
+      ->execute();
   }
   else {
-    $same_as_new = db_result(db_query_range(
-      "SELECT 1 FROM {menu_links} WHERE menu_name = '%s' AND weight = %d AND plid = %d",
-      $link_above['menu_name'], $link_above['weight'] + 1, $link_above['plid'], 0, 1
-    ));
+    $same_as_new = db_query_range(
+      "SELECT 1 FROM {menu_links} WHERE menu_name = :menu_name AND weight = :weight AND plid = :plid", 0, 1, array(
+        ':menu_name' => $link_above['menu_name'],
+        ':weight' => $link_above['weight'] + 1,
+        ':plid' => $link_above['plid'],
+      )
+    )->fetch(PDO::FETCH_NUM);
     // Several other links has the same weight as the one we want to be placed below...
     if ($same_as_new) {
-      db_query(
-        "UPDATE {menu_links} SET weight = weight + 1 WHERE menu_name = '%s' AND weight > %d AND plid = %d",
-        $link_above['menu_name'], $link_above['weight'], $link_above['plid']
-      );
+      db_update('menu_links')
+        ->expression('weight', 'weight + 1')
+        ->condition('menu_name', $link_above['menu_name'])
+        ->condition('weight', $link_above['weight'], '>')
+        ->condition('plid', $link_above['plid'])
+        ->execute();
     }
   }
 }
@@ -212,13 +246,17 @@ function menuux_fix_menu_weights($link_above) {
  * @return array menus
  *  All available menus
  */
-function menuux_available_menus() {
-  $menus = array();
-  $res = db_query(db_rewrite_sql('SELECT menu_name, title FROM {menu_custom}', 'menu_custom', 'menu_name'));
-  while ($res_o = db_fetch_object($res)) {
-    $menus[$res_o->menu_name] = $res_o->title;
+function menuux_available_menus($type = FALSE) {
+  $all_menus = menu_get_menus();
+  if ($type === FALSE) {
+    return $all_menus;
   }
-  return $menus;
+  $menus = variable_get('menu_options_' . $type, array('main-menu' => 'main-menu'));
+  $to_return = array();
+  foreach ($menus as $key => $menu) {
+    $to_return[$menu] = $all_menus[$menu];
+  }
+  return $to_return;
 }
 
 /**
@@ -230,7 +268,7 @@ function menuux_available_menus() {
  *  Id of the menu link that is already active
  */
 function menuux_load_menu_ajax($menu_name, $active_mlid = FALSE) {
-  drupal_set_header('Content-Type: text/html; charset=utf-8');
+  drupal_add_http_header('Content-Type', 'text/html; charset=utf-8');
   print menuux_get_menu($menu_name, $active_mlid);
 }
 
@@ -248,7 +286,7 @@ function menuux_get_menu($menu_name, $active_mlid = FALSE) {
   $raw_menu = menu_tree_all_data($menu_name);
   $menu = array();
   menuux_generate_menu_rec($menu, $raw_menu, $active_mlid);
-  return theme('menuux_menu', $menu);
+  return theme('menuux_menu', array('menu' => $menu));
 }
 
 /**
@@ -279,6 +317,7 @@ function menuux_generate_menu_rec(&$menu, $raw_menu, $active_mlid = FALSE) {
         $menu[$mlid]['active'] = TRUE;
         $has_active = TRUE;
       }
+      $menu[$mlid]['expanded'] = FALSE;
       if ($data['below']) {
         $below = array();
         $active_child = menuux_generate_menu_rec($below, $data['below'], $active_mlid);
@@ -307,15 +346,16 @@ function menuux_generate_menu_rec(&$menu, $raw_menu, $active_mlid = FALSE) {
  * @return string
  *  HTML for the menu browser
  */
-function theme_menuux_menu($menu, $level = 0) {
+function theme_menuux_menu($variables, $level = 0) {
+  $menu = $variables['menu'];
   $output = '<ul class="fmenu fmenu-level-' . $level . '">';
   $first = TRUE;
   foreach ($menu as $key => $link) {
     $has_below = isset($link['below']);
     $extra_class = $has_below ? $link['expanded'] ? ' fmenu-expanded' : ' fmenu-collapsed' : '';
-    $extra_class .= $link['active'] ? ' fmenu-new' : '';
+    $extra_class .= isset($link['active']) ? ' fmenu-new' : '';
     $output .= '<li class="fmenu-link" data-mlid="' . $key . '"><div class="fmenu-link-inner' . $extra_class . '">';
-    if (!$link['active']) {
+    if (!isset($link['active'])) {
       $output .= '<div class="hover-options"><ul>';
       if (!$has_below) {
         $output .= '<li><a href="#" class="fmenu-child" title="' . t('Place as child') . '"></a></li>';
@@ -327,10 +367,10 @@ function theme_menuux_menu($menu, $level = 0) {
       }
       $output .= '</ul></div>';
     }
-    $below = $has_below && !$link['active'] ? theme_menuux_menu($link['below'], $level + 1) : '';
-    $title = $link['active'] ?
+    $below = $has_below && !isset($link['active']) ? theme_menuux_menu(array('menu' => $link['below']), $level + 1) : '';
+    $title = isset($link['active']) ?
       '<div class="form-item"><input id="fmenu-link-input" type="text" size="60" maxlength="255" value="' . $link['title'] . '"/></div>' :
-      '<span class="fmenu-link-title">' . $link['title'] . '</span>';
+      '<span class="fmenu-link-title">' . (isset($link['title']) ? $link['title'] : '') . '</span>';
     $output .= $title . '</div>' . $below;
     $output .= '</li>';
   }
@@ -345,10 +385,7 @@ function theme_menuux_menu($menu, $level = 0) {
  * @return <type>
  */
 function theme_menuux_node_form($form) {
-  if (user_access('administer menu')) {
-    $p = drupal_get_path('module', 'menuux');
-    drupal_add_js($p . '/js/menu.js');
-    drupal_add_css($p . '/css/menu.css');
-  }
-  return drupal_render($form);
+  $p = drupal_get_path('module', 'menuux');
+  drupal_add_js($p . '/js/menu.js');
+  drupal_add_css($p . '/css/menu.css');
 }

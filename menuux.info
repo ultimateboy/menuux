@@ -2,5 +2,5 @@
 name = Menu UX
 description = Allow users to easily position new nodes in a menu.
 package = User interface
-core = 6.x
 dependencies[] = menu
+core = 7.x
