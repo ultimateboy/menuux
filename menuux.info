@@ -1,4 +1,3 @@
-; $Id$
 name = Menu UX
 description = Allow users to easily position new nodes in a menu.
 package = User interface

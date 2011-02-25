@@ -1,4 +1,3 @@
-// $Id$
 var MenuUX = MenuUX || {};
 var $ = jQuery;
 $(document).ready(function() {
