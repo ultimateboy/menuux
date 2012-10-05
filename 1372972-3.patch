@@ -1,0 +1,33 @@
+diff --git a/menuux.admin.inc b/menuux.admin.inc
+index 9cadf68..f3c9641 100755
+--- a/menuux.admin.inc
++++ b/menuux.admin.inc
+@@ -192,7 +192,9 @@ function menuux_node_form_submit(&$node) {
+         break;
+     }
+   }
+-  menu_link_save($link);
++  if ($link['menu_name']) {
++    menu_link_save($link);
++  }
+ }
+ 
+ /**
+diff --git a/menuux.install b/menuux.install
+new file mode 100644
+index 0000000..d4afa5a
+--- /dev/null
++++ b/menuux.install
+@@ -0,0 +1,12 @@
++<?php
++
++/**
++ * Removes unneeded menu items accidently created by this module.
++ *
++ * @see drupal.org/project/1372972
++ */
++function menuux_update_7001(&$sandbox) {
++  $delete = db_delete('menu_links')
++    ->condition('menu_name', 0)
++    ->execute();
++}
