@@ -192,7 +192,9 @@ function menuux_node_form_submit(&$node) {
         break;
     }
   }
-  menu_link_save($link);
+  if ($link['menu_name']) {
+    menu_link_save($link);
+  }
 }
 
 /**
